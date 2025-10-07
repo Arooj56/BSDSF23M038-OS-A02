@@ -1,7 +1,7 @@
 /*
-* Programming Assignment 02: ls v1.4.0
-* Feature 5: Alphabetical Sort
-* Adds automatic sorting of filenames (A–Z) using qsort()
+* Programming Assignment 02: ls v1.5.0
+* Feature 6: Reverse Order (-r)
+* Adds -r option to show files Z–A.
 */
 
 #include <stdio.h>
@@ -18,8 +18,7 @@
 
 extern int errno;
 
-// Function prototypes
-void do_ls(const char *dir, int long_listing, int horizontal);
+void do_ls(const char *dir, int long_listing, int horizontal, int reverse);
 void print_in_columns(char **filenames, int count);
 void print_horizontal(char **filenames, int count);
 int compare_names(const void *a, const void *b);
@@ -27,36 +26,36 @@ int compare_names(const void *a, const void *b);
 int main(int argc, char *argv[])
 {
     int opt;
-    int long_listing = 0;
-    int horizontal = 0;
+    int long_listing = 0, horizontal = 0, reverse = 0;
 
-    while ((opt = getopt(argc, argv, "lx")) != -1)
+    while ((opt = getopt(argc, argv, "lxr")) != -1)
     {
         switch (opt)
         {
         case 'l': long_listing = 1; break;
         case 'x': horizontal = 1; break;
+        case 'r': reverse = 1; break;
         default:
-            fprintf(stderr, "Usage: %s [-l] [-x] [directory]\n", argv[0]);
+            fprintf(stderr, "Usage: %s [-l] [-x] [-r] [directory]\n", argv[0]);
             exit(EXIT_FAILURE);
         }
     }
 
     if (optind == argc)
-        do_ls(".", long_listing, horizontal);
+        do_ls(".", long_listing, horizontal, reverse);
     else
     {
         for (int i = optind; i < argc; i++)
         {
             printf("Directory listing of %s:\n", argv[i]);
-            do_ls(argv[i], long_listing, horizontal);
+            do_ls(argv[i], long_listing, horizontal, reverse);
             puts("");
         }
     }
     return 0;
 }
 
-void do_ls(const char *dir, int long_listing, int horizontal)
+void do_ls(const char *dir, int long_listing, int horizontal, int reverse)
 {
     struct dirent *entry;
     DIR *dp = opendir(dir);
@@ -110,7 +109,16 @@ void do_ls(const char *dir, int long_listing, int horizontal)
 
     if (!long_listing && count>0)
     {
-        qsort(files, count, sizeof(char*), compare_names); // sort
+        qsort(files, count, sizeof(char*), compare_names);
+        if (reverse)
+        {
+            for (int i=0; i<count/2; i++)
+            {
+                char *tmp = files[i];
+                files[i] = files[count-1-i];
+                files[count-1-i] = tmp;
+            }
+        }
         if (horizontal) print_horizontal(files, count);
         else print_in_columns(files, count);
     }
@@ -123,7 +131,7 @@ void do_ls(const char *dir, int long_listing, int horizontal)
 int compare_names(const void *a, const void *b)
 {
     char *const *sa = a; char *const *sb = b;
-    return strcasecmp(*sa, *sb);  // case-insensitive sort
+    return strcasecmp(*sa, *sb);
 }
 
 void print_in_columns(char **f,int n)
