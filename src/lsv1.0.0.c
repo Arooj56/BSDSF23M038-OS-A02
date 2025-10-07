@@ -1,7 +1,7 @@
 /*
-* Programming Assignment 02: ls v1.2.0
-* Feature 3: Column Display (Down-Then-Across)
-* Automatically arranges files in columns based on terminal width
+* Programming Assignment 02: ls v1.3.0
+* Feature 4: Horizontal Display (-x)
+* Adds -x flag to print files row-wise instead of down-then-across.
 */
 
 #include <stdio.h>
@@ -14,41 +14,46 @@
 #include <pwd.h>
 #include <grp.h>
 #include <time.h>
-#include <sys/ioctl.h>   // For terminal width (ioctl)
+#include <sys/ioctl.h>   // For terminal width
 
 extern int errno;
 
 // Function prototypes
-void do_ls(const char *dir, int long_listing);
+void do_ls(const char *dir, int long_listing, int horizontal);
 void print_in_columns(char **filenames, int count);
+void print_horizontal(char **filenames, int count);
 
 int main(int argc, char *argv[])
 {
     int opt;
     int long_listing = 0;
+    int horizontal = 0;
 
-    // Parse -l flag
-    while ((opt = getopt(argc, argv, "l")) != -1)
+    // Parse -l and -x flags
+    while ((opt = getopt(argc, argv, "lx")) != -1)
     {
         switch (opt)
         {
         case 'l':
             long_listing = 1;
             break;
+        case 'x':
+            horizontal = 1;
+            break;
         default:
-            fprintf(stderr, "Usage: %s [-l] [directory]\n", argv[0]);
+            fprintf(stderr, "Usage: %s [-l] [-x] [directory]\n", argv[0]);
             exit(EXIT_FAILURE);
         }
     }
 
     if (optind == argc)
-        do_ls(".", long_listing);
+        do_ls(".", long_listing, horizontal);
     else
     {
         for (int i = optind; i < argc; i++)
         {
             printf("Directory listing of %s:\n", argv[i]);
-            do_ls(argv[i], long_listing);
+            do_ls(argv[i], long_listing, horizontal);
             puts("");
         }
     }
@@ -56,7 +61,7 @@ int main(int argc, char *argv[])
     return 0;
 }
 
-void do_ls(const char *dir, int long_listing)
+void do_ls(const char *dir, int long_listing, int horizontal)
 {
     struct dirent *entry;
     DIR *dp = opendir(dir);
@@ -71,7 +76,6 @@ void do_ls(const char *dir, int long_listing)
     struct group *gr;
     char path[1024];
 
-    // Array to hold filenames (for column display)
     char **filenames = NULL;
     int count = 0;
 
@@ -119,7 +123,6 @@ void do_ls(const char *dir, int long_listing)
         }
         else
         {
-            // Save filenames for column printing
             filenames = realloc(filenames, sizeof(char *) * (count + 1));
             filenames[count] = strdup(entry->d_name);
             count++;
@@ -130,9 +133,13 @@ void do_ls(const char *dir, int long_listing)
         perror("readdir failed");
 
     if (!long_listing)
-        print_in_columns(filenames, count);
+    {
+        if (horizontal)
+            print_horizontal(filenames, count);
+        else
+            print_in_columns(filenames, count);
+    }
 
-    // Cleanup
     for (int i = 0; i < count; i++)
         free(filenames[i]);
     free(filenames);
@@ -140,22 +147,22 @@ void do_ls(const char *dir, int long_listing)
     closedir(dp);
 }
 
-// ----------------------------------------
-// Helper function: print filenames in columns
-// ----------------------------------------
+// --------------------------------------------------
+// Print filenames down-then-across (default display)
+// --------------------------------------------------
 void print_in_columns(char **filenames, int count)
 {
-    if (count == 0) return;
+    if (count == 0)
+        return;
 
-    // Find longest filename
     int maxlen = 0;
     for (int i = 0; i < count; i++)
     {
         int len = strlen(filenames[i]);
-        if (len > maxlen) maxlen = len;
+        if (len > maxlen)
+            maxlen = len;
     }
 
-    // Get terminal width
     struct winsize w;
     int term_width = 80;
     if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) != -1)
@@ -163,11 +170,11 @@ void print_in_columns(char **filenames, int count)
 
     int col_width = maxlen + 2;
     int cols = term_width / col_width;
-    if (cols < 1) cols = 1;
+    if (cols < 1)
+        cols = 1;
 
     int rows = (count + cols - 1) / cols;
 
-    // Print down-then-across
     for (int r = 0; r < rows; r++)
     {
         for (int c = 0; c < cols; c++)
@@ -178,4 +185,41 @@ void print_in_columns(char **filenames, int count)
         }
         printf("\n");
     }
+}
+
+// --------------------------------------------------
+// Print filenames left-to-right (horizontal mode)
+// --------------------------------------------------
+void print_horizontal(char **filenames, int count)
+{
+    if (count == 0)
+        return;
+
+    int maxlen = 0;
+    for (int i = 0; i < count; i++)
+    {
+        int len = strlen(filenames[i]);
+        if (len > maxlen)
+            maxlen = len;
+    }
+
+    struct winsize w;
+    int term_width = 80;
+    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) != -1)
+        term_width = w.ws_col;
+
+    int col_width = maxlen + 2;
+    int pos = 0;
+
+    for (int i = 0; i < count; i++)
+    {
+        if (pos + col_width > term_width)
+        {
+            printf("\n");
+            pos = 0;
+        }
+        printf("%-*s", col_width, filenames[i]);
+        pos += col_width;
+    }
+    printf("\n");
 }
