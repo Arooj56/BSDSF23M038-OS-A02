@@ -1,7 +1,7 @@
 /*
-* Programming Assignment 02: ls v1.3.0
-* Feature 4: Horizontal Display (-x)
-* Adds -x flag to print files row-wise instead of down-then-across.
+* Programming Assignment 02: ls v1.4.0
+* Feature 5: Alphabetical Sort
+* Adds automatic sorting of filenames (A–Z) using qsort()
 */
 
 #include <stdio.h>
@@ -14,7 +14,7 @@
 #include <pwd.h>
 #include <grp.h>
 #include <time.h>
-#include <sys/ioctl.h>   // For terminal width
+#include <sys/ioctl.h>
 
 extern int errno;
 
@@ -22,6 +22,7 @@ extern int errno;
 void do_ls(const char *dir, int long_listing, int horizontal);
 void print_in_columns(char **filenames, int count);
 void print_horizontal(char **filenames, int count);
+int compare_names(const void *a, const void *b);
 
 int main(int argc, char *argv[])
 {
@@ -29,17 +30,12 @@ int main(int argc, char *argv[])
     int long_listing = 0;
     int horizontal = 0;
 
-    // Parse -l and -x flags
     while ((opt = getopt(argc, argv, "lx")) != -1)
     {
         switch (opt)
         {
-        case 'l':
-            long_listing = 1;
-            break;
-        case 'x':
-            horizontal = 1;
-            break;
+        case 'l': long_listing = 1; break;
+        case 'x': horizontal = 1; break;
         default:
             fprintf(stderr, "Usage: %s [-l] [-x] [directory]\n", argv[0]);
             exit(EXIT_FAILURE);
@@ -57,7 +53,6 @@ int main(int argc, char *argv[])
             puts("");
         }
     }
-
     return 0;
 }
 
@@ -65,161 +60,95 @@ void do_ls(const char *dir, int long_listing, int horizontal)
 {
     struct dirent *entry;
     DIR *dp = opendir(dir);
-    if (dp == NULL)
-    {
-        fprintf(stderr, "Cannot open directory: %s\n", dir);
-        return;
-    }
+    if (!dp) { perror("opendir"); return; }
 
     struct stat fileStat;
-    struct passwd *pw;
-    struct group *gr;
+    struct passwd *pw; struct group *gr;
     char path[1024];
-
-    char **filenames = NULL;
-    int count = 0;
+    char **files = NULL; int count = 0;
 
     errno = 0;
     while ((entry = readdir(dp)) != NULL)
     {
-        if (entry->d_name[0] == '.')
-            continue;
-
+        if (entry->d_name[0] == '.') continue;
         snprintf(path, sizeof(path), "%s/%s", dir, entry->d_name);
 
         if (long_listing)
         {
-            if (stat(path, &fileStat) == -1)
-            {
-                perror("stat");
-                continue;
-            }
+            if (stat(path, &fileStat) == -1) { perror("stat"); continue; }
 
             printf((S_ISDIR(fileStat.st_mode)) ? "d" : "-");
-            printf((fileStat.st_mode & S_IRUSR) ? "r" : "-");
-            printf((fileStat.st_mode & S_IWUSR) ? "w" : "-");
-            printf((fileStat.st_mode & S_IXUSR) ? "x" : "-");
-            printf((fileStat.st_mode & S_IRGRP) ? "r" : "-");
-            printf((fileStat.st_mode & S_IWGRP) ? "w" : "-");
-            printf((fileStat.st_mode & S_IXGRP) ? "x" : "-");
-            printf((fileStat.st_mode & S_IROTH) ? "r" : "-");
-            printf((fileStat.st_mode & S_IWOTH) ? "w" : "-");
-            printf((fileStat.st_mode & S_IXOTH) ? "x" : "-");
+            printf((fileStat.st_mode & S_IRUSR) ? "r":"-");
+            printf((fileStat.st_mode & S_IWUSR) ? "w":"-");
+            printf((fileStat.st_mode & S_IXUSR) ? "x":"-");
+            printf((fileStat.st_mode & S_IRGRP) ? "r":"-");
+            printf((fileStat.st_mode & S_IWGRP) ? "w":"-");
+            printf((fileStat.st_mode & S_IXGRP) ? "x":"-");
+            printf((fileStat.st_mode & S_IROTH) ? "r":"-");
+            printf((fileStat.st_mode & S_IWOTH) ? "w":"-");
+            printf((fileStat.st_mode & S_IXOTH) ? "x":"-");
 
             pw = getpwuid(fileStat.st_uid);
             gr = getgrgid(fileStat.st_gid);
-
             printf(" %3ld %-8s %-8s %8ld ",
                    fileStat.st_nlink,
-                   pw ? pw->pw_name : "unknown",
-                   gr ? gr->gr_name : "unknown",
+                   pw ? pw->pw_name:"?", gr?gr->gr_name:"?",
                    fileStat.st_size);
 
-            char *time_str = ctime(&fileStat.st_mtime);
-            time_str[strlen(time_str) - 1] = '\0';
-            printf("%s ", time_str);
-
-            printf("%s\n", entry->d_name);
+            char *t = ctime(&fileStat.st_mtime);
+            t[strlen(t)-1] = '\0';
+            printf("%s %s\n", t, entry->d_name);
         }
         else
         {
-            filenames = realloc(filenames, sizeof(char *) * (count + 1));
-            filenames[count] = strdup(entry->d_name);
-            count++;
+            files = realloc(files, sizeof(char*)*(count+1));
+            files[count++] = strdup(entry->d_name);
         }
     }
 
-    if (errno != 0)
-        perror("readdir failed");
+    if (errno != 0) perror("readdir");
 
-    if (!long_listing)
+    if (!long_listing && count>0)
     {
-        if (horizontal)
-            print_horizontal(filenames, count);
-        else
-            print_in_columns(filenames, count);
+        qsort(files, count, sizeof(char*), compare_names); // sort
+        if (horizontal) print_horizontal(files, count);
+        else print_in_columns(files, count);
     }
 
-    for (int i = 0; i < count; i++)
-        free(filenames[i]);
-    free(filenames);
-
+    for (int i=0;i<count;i++) free(files[i]);
+    free(files);
     closedir(dp);
 }
 
-// --------------------------------------------------
-// Print filenames down-then-across (default display)
-// --------------------------------------------------
-void print_in_columns(char **filenames, int count)
+int compare_names(const void *a, const void *b)
 {
-    if (count == 0)
-        return;
-
-    int maxlen = 0;
-    for (int i = 0; i < count; i++)
-    {
-        int len = strlen(filenames[i]);
-        if (len > maxlen)
-            maxlen = len;
-    }
-
-    struct winsize w;
-    int term_width = 80;
-    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) != -1)
-        term_width = w.ws_col;
-
-    int col_width = maxlen + 2;
-    int cols = term_width / col_width;
-    if (cols < 1)
-        cols = 1;
-
-    int rows = (count + cols - 1) / cols;
-
-    for (int r = 0; r < rows; r++)
-    {
-        for (int c = 0; c < cols; c++)
-        {
-            int index = c * rows + r;
-            if (index < count)
-                printf("%-*s", col_width, filenames[index]);
-        }
-        printf("\n");
-    }
+    char *const *sa = a; char *const *sb = b;
+    return strcasecmp(*sa, *sb);  // case-insensitive sort
 }
 
-// --------------------------------------------------
-// Print filenames left-to-right (horizontal mode)
-// --------------------------------------------------
-void print_horizontal(char **filenames, int count)
+void print_in_columns(char **f,int n)
 {
-    if (count == 0)
-        return;
+    if (n==0) return;
+    int max=0; for(int i=0;i<n;i++) if(strlen(f[i])>max) max=strlen(f[i]);
+    struct winsize w; int width=80;
+    if(ioctl(STDOUT_FILENO,TIOCGWINSZ,&w)!=-1) width=w.ws_col;
+    int cw=max+2, cols=width/cw; if(cols<1)cols=1;
+    int rows=(n+cols-1)/cols;
+    for(int r=0;r<rows;r++){ for(int c=0;c<cols;c++){
+        int idx=c*rows+r; if(idx<n) printf("%-*s",cw,f[idx]); }
+        printf("\n"); }
+}
 
-    int maxlen = 0;
-    for (int i = 0; i < count; i++)
-    {
-        int len = strlen(filenames[i]);
-        if (len > maxlen)
-            maxlen = len;
-    }
-
-    struct winsize w;
-    int term_width = 80;
-    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) != -1)
-        term_width = w.ws_col;
-
-    int col_width = maxlen + 2;
-    int pos = 0;
-
-    for (int i = 0; i < count; i++)
-    {
-        if (pos + col_width > term_width)
-        {
-            printf("\n");
-            pos = 0;
-        }
-        printf("%-*s", col_width, filenames[i]);
-        pos += col_width;
+void print_horizontal(char **f,int n)
+{
+    if(n==0) return;
+    int max=0; for(int i=0;i<n;i++) if(strlen(f[i])>max) max=strlen(f[i]);
+    struct winsize w; int width=80;
+    if(ioctl(STDOUT_FILENO,TIOCGWINSZ,&w)!=-1) width=w.ws_col;
+    int cw=max+2,pos=0;
+    for(int i=0;i<n;i++){
+        if(pos+cw>width){printf("\n");pos=0;}
+        printf("%-*s",cw,f[i]); pos+=cw;
     }
     printf("\n");
 }
